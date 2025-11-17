@@ -1,14 +1,29 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, scoped_session
 from sqlalchemy.ext.declarative import declarative_base
+import os
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Base class for all models
 Base = declarative_base()
 
-# Database URL (MySQL)
-# DATABASE_URL = "mysql+pymysql://genuineh_dashboard:Wecandoit_2025@mumult1.hostarmada.net:3306/genuineh_dashboard"
-DATABASE_URL = "mysql+pymysql://root:vivek123@localhost:3306/dummy"
-# DATABASE_URL = "mysql+pymysql://genuineh_dashboard:Wecandoit_2025@localhost:3306/genuineh_dashboard"
+# Database URL (MySQL) - Read from environment variables
+DB_HOST = os.getenv('DB_HOST')
+DB_USER = os.getenv('DB_USER')
+DB_PASSWORD = os.getenv('DB_PASSWORD')
+DB_NAME = os.getenv('DB_NAME')
+DB_PORT = os.getenv('DB_PORT')
+
+print("DEBUG ENV → HOST:", DB_HOST, "USER:", DB_USER, "PASS:", DB_PASSWORD, "DB:", DB_NAME)
+
+# Construct database URL dynamically from environment variables
+DATABASE_URL = (
+    f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}"
+    f"@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+)
 
 # Engine creation
 engine = create_engine(

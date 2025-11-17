@@ -7,7 +7,7 @@ class AmazonProduct(Base):
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     ASIN = Column(String(20), unique=True, nullable=False)
-    Product_name = Column(String(1000), nullable=False)
+    Product_name = Column(Text, nullable=False)
     price = Column(String(50), nullable=False)
     rating = Column(Float, nullable=False)
     Number_of_ratings = Column(Integer, nullable=False)
@@ -20,7 +20,7 @@ class AmazonProduct(Base):
     colour = Column(String(255), nullable=False)
     size_options = Column(Text, nullable=False)
     description = Column(Text, nullable=False)
-    link = Column(String(1000), nullable=False)
+    link = Column(Text, nullable=False)
     Image_URLs = Column(Text, nullable=False)
     About_the_items_bullet = Column(Text, nullable=False)
     Product_details = Column(JSON, nullable=False)

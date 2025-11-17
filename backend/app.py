@@ -1,6 +1,6 @@
 from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
-import os, sys, re, time, random, json, argparse, threading
+import os, sys, re, time, random, json, argparse, threading,csv
 import pandas as pd
 import mysql.connector
 from mysql.connector import Error
@@ -13,7 +13,7 @@ from playwright.sync_api import sync_playwright
 from bs4 import BeautifulSoup
 import requests
 from urllib.parse import urljoin
-from fake_useragent import UserAgent
+from fake_useragent import UserAgent    
 from config import Config
 from extensions import db, jwt, cors
 
@@ -29,6 +29,12 @@ app.config.from_object(Config)
 db.init_app(app)
 jwt.init_app(app)
 cors(app)
+
+# Import all SQLAlchemy models so that db.create_all() works
+from model.user import User
+from model.amazon_product_model import AmazonProduct
+from model.googlemap_data import GooglemapData
+from model.item_csv_model import ItemData
 
 with app.app_context():
     db.create_all()
@@ -86,11 +92,12 @@ class BusinessList:
         """Save data to MySQL database using credentials from .env"""
         connection = None
         try:
+            print("Saving to DB:", os.getenv('DB_HOST'), os.getenv('DB_USER'), os.getenv('DB_NAME'))
             connection = mysql.connector.connect(
-                host=os.getenv('DB_HOST', 'localhost'),
-                user=os.getenv('DB_USER', 'genuineh_dashboard'),
-                password=os.getenv('DB_PASSWORD', 'Wecandoit_2025'),
-                database=os.getenv('DB_NAME', 'genuineh_dashboard')
+                host=os.getenv('DB_HOST'),
+                user=os.getenv('DB_USER'),
+                password=os.getenv('DB_PASSWORD'),
+                database=os.getenv('DB_NAME')
             )
 
             if connection.is_connected():
@@ -147,7 +154,7 @@ class BusinessList:
                 print(f"✅ Successfully saved {len(self.business_list)} businesses to MySQL")
 
         except Error as e:
-            print(f"❌ MySQL Error: {e}")
+            print(f" MySQL Error: {e}")
         finally:
             if connection and connection.is_connected():
                 connection.close()
@@ -155,7 +162,10 @@ class BusinessList:
 def run_scraper(search_list):
     """Run the scraper with the provided search list"""
     with sync_playwright() as p:
+        print("playwright is running")
         browser = p.chromium.launch(headless=False)
+        print("completed playwright")
+        
         page = browser.new_page()
 
         page.goto("https://www.google.com/maps", timeout=60000)
@@ -261,9 +271,23 @@ def run_scraper(search_list):
                 except Exception as e:
                     print(f'Error occurred: {e}')
 
+            print("Preparing to save files...")
+            print("Businesses collected:", len(business_list.business_list))
+
             safe_name = safe_filename(f"google_maps_data_{category}_{city}_{state}")
-            business_list.save_to_csv(safe_name)
-            business_list.save_to_mysql()
+
+            try:
+                business_list.save_to_csv(safe_name)
+                print("CSV saved successfully")
+            except Exception as e:
+                print("CSV Save Error:", e)
+
+            try:
+                business_list.save_to_mysql()
+                print("MySQL Save Done")
+            except Exception as e:
+                print("MySQL Save Error:", e)
+
 
         browser.close()
 
@@ -297,18 +321,21 @@ def api_scrape():
 
 @app.route('/api/results', methods=['GET'])
 def api_results():
+    connection = None
     try:
+        print("Connecting with:", os.getenv('DB_HOST'), os.getenv('DB_USER'), os.getenv('DB_NAME'))
         connection = mysql.connector.connect(
-           host=os.getenv('DB_HOST', 'localhost'),
-           user=os.getenv('DB_USER', 'genuineh_dashboard'),
-           password=os.getenv('DB_PASSWORD', 'Wecandoit_2025'),
-           database=os.getenv('DB_NAME', 'genuineh_dashboard')
+           host=os.getenv('DB_HOST'),
+           user=os.getenv('DB_USER'),
+           password=os.getenv('DB_PASSWORD'),
+           database=os.getenv('DB_NAME')
         )
         cursor = connection.cursor(dictionary=True)
         cursor.execute("SELECT * FROM businesses LIMIT 1000")
         results = cursor.fetchall()
         return jsonify(results)
     except Error as e:
+        print("Error connecting to database:", e)
         return jsonify({'error': str(e)}), 500
     finally:
         if connection and connection.is_connected():
@@ -352,10 +379,10 @@ def main():
 # amazone scrapper 
 # MySQL connection config (use environment variables or hardcode for local)
 DB_CONFIG_AMAZON = {
-    'host': os.getenv('DB_HOST', 'localhost'),
-    'user': os.getenv('DB_USER', 'genuineh_dashboard'),
-    'password': os.getenv('DB_PASSWORD', 'Wecandoit_2025'),
-    'database': os.getenv('DB_NAME', 'genuineh_dashboard')
+    'host': os.getenv('DB_HOST'),
+    'user': os.getenv('DB_USER'),
+    'password': os.getenv('DB_PASSWORD'),
+    'database': os.getenv('DB_NAME')
 }
 
 ua = UserAgent()
@@ -378,6 +405,7 @@ def get_headers():
     }
 
 def get_product_details(url):
+    print("Inside get_product_details:", url)
     try:
         time.sleep(random.uniform(1, 3))
         response = requests.get(url, headers=get_headers())
@@ -386,8 +414,23 @@ def get_product_details(url):
             raise Exception("Captcha page encountered")
         soup = BeautifulSoup(response.text, 'html.parser')
         asin = url.split('/dp/')[1].split('/')[0] if '/dp/' in url else None
-        name = soup.select_one('#productTitle')
-        name = name.get_text().strip() if name else None
+        title_selectors = [
+            "#productTitle",
+            "span.a-size-large.product-title-word-break",
+            "h1.a-size-large.a-spacing-none",
+            "span#title",
+            "h1#title",
+        ]
+
+        name = None
+        for selector in title_selectors:
+            elem = soup.select_one(selector)
+            if elem:
+                name = elem.get_text().strip()
+                break
+
+        if not name:
+            print("Title not found for:", url)
         price = soup.select_one('.a-price-whole')
         price = price.get_text().strip() if price else None
         if price:
@@ -441,26 +484,6 @@ def get_product_details(url):
         print(f"Error scraping product details: {e}")
         return None
 
-def scrape_amazon_search(search_term, pages=1):
-    products = []
-    for page in range(1, pages + 1):
-        try:
-            search_url = f"{BASE_URL}/s?k={requests.utils.quote(search_term)}&page={page}"
-            time.sleep(random.uniform(1, 2))
-            response = requests.get(search_url, headers=get_headers())
-            response.raise_for_status()
-            soup = BeautifulSoup(response.text, 'html.parser')
-            product_links = [urljoin(BASE_URL, a['href']) for a in soup.select('a.a-link-normal.s-no-outline') if a.get('href')]
-            for link in product_links:
-                product_data = get_product_details(link)
-                if product_data:
-                    products.append(product_data)
-                time.sleep(random.uniform(1.5, 4))
-        except Exception as e:
-            print(f"Error on page {page}: {str(e)}")
-            time.sleep(random.uniform(5, 10))
-            continue
-    return products
 
 def insert_products_to_db(products):
     if not products:
@@ -474,7 +497,7 @@ def insert_products_to_db(products):
         CREATE TABLE IF NOT EXISTS amazon_products (
             id INT AUTO_INCREMENT PRIMARY KEY,
             ASIN VARCHAR(20) UNIQUE,
-            Product_name VARCHAR(1000),
+            Product_name TEXT,
             price VARCHAR(50),
             rating FLOAT,
             Number_of_ratings INT,
@@ -487,7 +510,7 @@ def insert_products_to_db(products):
             colour VARCHAR(255),
             size_options TEXT,
             description TEXT,
-            link VARCHAR(1000),
+            link TEXT,
             Image_URLs TEXT,
             About_the_items_bullet TEXT,
             Product_details JSON,
@@ -553,10 +576,104 @@ def insert_products_to_db(products):
             connection.close()
     return inserted
 
+    
+def scrape_amazon_search(search_term, pages=1, limit=1000):
+    products = []
+    previous_count = 0   # track number of links seen before
+
+    for page in range(1, pages + 1):
+        try:
+            print(f"\n----- Scraping Page {page} -----")
+
+            search_url = f"{BASE_URL}/s?k={requests.utils.quote(search_term)}&page={page}"
+            time.sleep(random.uniform(1, 2))
+
+            response = requests.get(search_url, headers=get_headers())
+            response.raise_for_status()
+
+            soup = BeautifulSoup(response.text, 'html.parser')
+
+            product_links = [
+                urljoin(BASE_URL, a['href'])
+                for a in soup.select('a.a-link-normal.s-no-outline')
+                if a.get('href')
+            ]
+
+            print("Found links on this page:", len(product_links))
+
+            # Stop condition when no links are found
+            if len(product_links) == previous_count:
+                print("No new product links appearing… stopping scraping.")
+                break
+
+            previous_count = len(product_links)
+
+            # collect product details
+            for link in product_links:
+                if len(products) >= limit:
+                    print(f"Reached the scraping limit of {limit} products.")
+                    break
+
+                print("Fetching product:", link)
+                product_data = get_product_details(link)
+
+                if product_data:
+                    products.append(product_data)
+
+                time.sleep(random.uniform(1.5, 4))
+
+            if len(products) >= limit:
+                break
+
+        except Exception as e:
+            print(f"Error on page {page}: {str(e)}")
+            time.sleep(random.uniform(5, 10))
+            continue
+
+    # Save to CSV
+    print("Saving to CSV...")
+
+    # make output folder if not exists
+    if not os.path.exists("output"):
+        os.makedirs("output")
+
+    filename = f"output/amazon_data_{search_term.replace(' ', '_')}.csv"
+
+    # save list of dicts to CSV
+    if products:
+        keys = products[0].keys()
+        with open(filename, "w", newline="", encoding="utf-8") as f:
+            dict_writer = csv.DictWriter(f, keys)
+            dict_writer.writeheader()
+            dict_writer.writerows(products)
+
+        print(f"CSV saved successfully: {filename}")
+    else:
+        print("No products scraped. CSV not created.")
+
+    # saving the data to db
+
+    print("Saving data to MySQL…")
+    inserted = insert_products_to_db(products)
+    if inserted:
+        print(f"Inserted {inserted} rows into DB.")
+    else:
+        print("No data inserted into DB.")
+
+    print("Total products scraped:", len(products))
+    return products
+
+
 @app.route('/api/amazon_products', methods=['GET'])
 def get_amazon_products():
     connection = None
     try:
+        print("DEBUG → GET API using:", 
+        os.getenv('DB_HOST'),
+        os.getenv('DB_USER'),
+        os.getenv('DB_PASSWORD'),
+        os.getenv('DB_NAME'))
+
         connection = mysql.connector.connect(**DB_CONFIG_AMAZON)
         cursor = connection.cursor(dictionary=True)
         cursor.execute("SELECT * FROM amazon_products LIMIT 1000")
@@ -575,9 +692,10 @@ def scrape_and_insert():
     pages = int(data.get('pages', 1))
     if not search_term:
         return jsonify({'error': 'search_term is required'}), 400
-    scraped_products = scrape_amazon_search(search_term, pages)
-    inserted = insert_products_to_db(scraped_products)
-    return jsonify({'inserted': inserted, 'scraped': len(scraped_products)})
+    thread = threading.Thread(target=scrape_amazon_search, args=(search_term, pages))
+    thread.start()
+    return jsonify({"status": "started"}), 202
+
 
 # ROOT
 @app.route('/')
@@ -657,5 +775,6 @@ if __name__ == '__main__':
                     connection.close()
     else:
         parser.print_help()
+print("Loaded DB:", os.getenv("DB_USER"), os.getenv("DB_NAME"))
 
 
