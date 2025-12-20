@@ -18,10 +18,9 @@ import { Home } from "./pages/dashboard/home";
 import { Profile } from "./pages/dashboard/profile";
 import { Tables } from "./pages/dashboard/tables";
 import { Notifications } from "./pages/dashboard/notifications";
-
-// IMPORT: Loading your cities report component
+import ZomatoData from "./componunts/listing master data/ZomatoData";
 import CitiesReports from "./componunts/Reports/cities_reports";
-
+import CategoriesReports from "./componunts/Reports/categories_reports";
 import BusinessCategory from "./componunts/masterdata/BusinessCategory";
 import ServiceCategory from "./componunts/masterdata/ServiceCategory";
 import ProductCategory from "./componunts/masterdata/ProductCategory";
@@ -29,6 +28,10 @@ import ListingComplete from "./componunts/listing master data/ListingComplate";
 import ListingIncomplate from "./componunts/listing master data/ListingIncomplate";
 import ProductComplete from "./componunts/product master data/ProductComplate";
 import ProductIncomplate from "./componunts/product master data/ProductIncomplate";
+
+// --- NEW IMPORT ADDED HERE ---
+import AmazonData from "./componunts/product master data/AmazonData"; 
+
 import ServiceComplate from "./componunts/service master data/ServiceComplate";
 import ServiceIncomplate from "./componunts/service master data/ServiceIncomplate";
 import GoogleMapScrapper from "./componunts/scrapper/GoogleMapScrapper";
@@ -99,9 +102,13 @@ export const routes = [
         hidden: true,
       },
       {
-        // ROUTE: This maps the dashboard button to your new page
         path: "/cities-report",
         element: <CitiesReports />,
+        hidden: true,
+      },
+      {
+        path: "/categories-report",
+        element: <CategoriesReports />,
         hidden: true,
       },
       {
@@ -290,6 +297,12 @@ export const routes = [
           },
           {
             icon: <TableCellsIcon {...icon} />,
+            name: "Zomato Data",
+            path: "listing-master-data/zomato-data",
+            element: <ZomatoData />,
+          },
+          {
+            icon: <TableCellsIcon {...icon} />,
             name: "Magicpin",
             path: "listing-master-data/magicpin-data",
             element: <MagicPinData />,
@@ -396,12 +409,13 @@ export const routes = [
             path: "product-master-data/incomplete-data",
             element: <ProductIncomplate />,
           },
-         {
-          icon: <TableCellsIcon {...icon} />,
-          name: "Amazon Data",
-          path: "product-master-data/amazon-data",
-          element: "ProductAmazonData",
-         }
+          {
+            icon: <TableCellsIcon {...icon} />,
+            name: "Amazon Data",
+            path: "product-master-data/amazon-data",
+           
+            element: <AmazonData />,
+          }
         ]
       },
       {
