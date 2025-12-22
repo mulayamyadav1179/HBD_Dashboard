@@ -27,12 +27,13 @@ const defaultColumns = [
   { key: "reviews_average", label: "Review Avg", width: 120 },
   { key: "category", label: "Category", width: 140 },
   { key: "subcategory", label: "Sub-Category", width: 140 },
+  { key: "source", label: "Source", width: 120 }, // ✅ NEW
   { key: "city", label: "City", width: 140 },
   { key: "state", label: "State", width: 140 },
   { key: "area", label: "Area", width: 140 },
 ];
 
-// Convert JSON to CSV
+// CSV Converter
 const convertToCSV = (arr) => {
   if (!arr?.length) return "";
   const headers = Object.keys(arr[0]);
@@ -42,16 +43,17 @@ const convertToCSV = (arr) => {
   return [headers.join(","), ...rows].join("\n");
 };
 
-const GoogleData = () => {
+const CleanListingMaster = () => {
   const [loading, setLoading] = useState(true);
   const [fullData, setFullData] = useState([]);
   const [pageData, setPageData] = useState([]);
   const [currentPage, setCurrentPage] = useState(1);
   const [total, setTotal] = useState(0);
-  const limit = 10;
+  const limit = 20;
 
   const [search, setSearch] = useState("");
   const [areaSearch, setAreaSearch] = useState("");
+  const [sourceFilter, setSourceFilter] = useState(""); // ✅ NEW
 
   const [sortField, setSortField] = useState(null);
   const [sortOrder, setSortOrder] = useState("asc");
@@ -68,26 +70,46 @@ const GoogleData = () => {
     }, 300);
   }, []);
 
-  // Filter Data (Safe with Strings)
+  // Reset page on filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search, areaSearch, sourceFilter]);
+
+  // Filter Data
   const filteredData = useMemo(() => {
     let data = [...fullData];
-
-    const safeValue = (value) => String(value ?? "").toLowerCase();
+    const safe = (v) => String(v ?? "").toLowerCase();
 
     if (search) {
       const s = search.toLowerCase();
-      data = data.filter((x) => safeValue(x.name).includes(s));
+      data = data.filter((x) => safe(x.name).includes(s));
     }
 
     if (areaSearch) {
       const s = areaSearch.toLowerCase();
-      data = data.filter((x) => safeValue(x.category).includes(s));
+      data = data.filter((x) => safe(x.category).includes(s));
+    }
+
+    if (sourceFilter) {
+      data = data.filter(
+        (x) => safe(x.source) === sourceFilter.toLowerCase()
+      );
     }
 
     return data;
-  }, [fullData, search, areaSearch]);
+  }, [fullData, search, areaSearch, sourceFilter]);
 
-  // Sort Data
+  // Source Counts
+  const sourceCounts = useMemo(() => {
+    const counts = {};
+    filteredData.forEach((x) => {
+      const s = x.source || "unknown";
+      counts[s] = (counts[s] || 0) + 1;
+    });
+    return counts;
+  }, [filteredData]);
+
+  // Sort
   const sortedData = useMemo(() => {
     if (!sortField) return filteredData;
 
@@ -108,7 +130,6 @@ const GoogleData = () => {
 
   const totalPages = Math.max(1, Math.ceil(total / limit));
 
-  // Sorting Handler
   const toggleSort = (field) => {
     if (sortField === field) {
       setSortOrder((o) => (o === "asc" ? "desc" : "asc"));
@@ -118,9 +139,9 @@ const GoogleData = () => {
     }
   };
 
-  // CSV Download
+  // CSV
   const downloadCSV = (currentOnly = false) => {
-    const arr = currentOnly ? pageData : fullData;
+    const arr = currentOnly ? pageData : sortedData;
     const csv = convertToCSV(arr);
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
@@ -131,9 +152,9 @@ const GoogleData = () => {
     URL.revokeObjectURL(url);
   };
 
-  // Excel Download
+  // Excel
   const downloadExcel = (currentOnly = false) => {
-    const arr = currentOnly ? pageData : fullData;
+    const arr = currentOnly ? pageData : sortedData;
     if (!arr.length) return;
 
     const ws = XLSX.utils.json_to_sheet(arr);
@@ -144,118 +165,91 @@ const GoogleData = () => {
 
   return (
     <div className="min-h-screen mt-8 mb-12 px-4 rounded bg-white text-black">
-      {/* Header */}
       <div className="flex justify-between items-center mb-4">
-        <Typography variant="h4" className="pb-2">
-          Google Data
-        </Typography>
+        <Typography variant="h4" className="pb-2">Clean Listing Data</Typography>
 
-        <div className="flex items-center gap-2">
-          <Button size="sm" onClick={() => downloadCSV(false)} className="bg-gray-800 text-gray-100">
-            CSV All
-          </Button>
-          <Button size="sm" onClick={() => downloadCSV(true)} className="bg-gray-800 text-gray-100">
-            CSV Page
-          </Button>
-          <Button size="sm" onClick={() => downloadExcel(false)} className="bg-gray-800 text-gray-100">
-            Excel All
-          </Button>
-          <Button size="sm" onClick={() => downloadExcel(true)} className="bg-gray-800 text-gray-100">
-            Excel Page
-          </Button>
+        <div className="flex gap-2">
+          <Button size="sm" onClick={() => downloadCSV(false)}>CSV All</Button>
+          <Button size="sm" onClick={() => downloadCSV(true)}>CSV Page</Button>
+          <Button size="sm" onClick={() => downloadExcel(false)}>Excel All</Button>
+          <Button size="sm" onClick={() => downloadExcel(true)}>Excel Page</Button>
         </div>
       </div>
 
-      {/* Table Card */}
-      <Card className="bg-white text-black border">
-        <CardHeader className="flex flex-wrap items-center justify-between gap-3 p-4 bg-gray-100">
-          <div className="flex gap-3 items-center flex-wrap">
+      {/* Source Badges */}
+      {/* <div className="flex gap-3 mb-3 text-sm">
+        {Object.entries(sourceCounts).map(([k, v]) => (
+          <span key={k} className="px-3 py-1 border rounded bg-gray-100">
+            {k} : {v}
+          </span>
+        ))}
+      </div> */}
+
+      <Card className="border">
+        <CardHeader className="flex flex-wrap justify-between gap-3 p-4 bg-gray-100">
+          <div className="flex gap-3 flex-wrap">
             <Input label="Search Name..." value={search} onChange={(e) => setSearch(e.target.value)} />
-            <Input
-              label="Search Category..."
-              value={areaSearch}
-              onChange={(e) => setAreaSearch(e.target.value)}
-              icon={<MagnifyingGlassIcon className="h-5 w-5" />}
-            />
+            <Input label="Search Category..." value={areaSearch} onChange={(e) => setAreaSearch(e.target.value)} />
+            <select
+              value={sourceFilter}
+              onChange={(e) => setSourceFilter(e.target.value)}
+              className="border rounded px-3 py-2 bg-white text-sm"
+            >
+              <option value="">All Sources</option>
+              <option value="justdial"></option>
+              <option value="justdial"></option>
+              <option value="justdial"></option>
+              <option value="justdial"></option>
+              <option value="justdial"></option>
+              <option value="justdial"></option>
+              <option value="justdial"></option>
+              <option value="justdial"></option>
+              <option value="justdial"></option>
+              <option value="justdial"></option>
+              <option value="justdial"></option>
+            </select>
           </div>
 
           <div className="flex gap-2 items-center">
-            <div>Page {currentPage} / {totalPages}</div>
-            <Button size="sm" disabled={currentPage === 1} onClick={() => setCurrentPage((p) => p - 1)}>Prev</Button>
-            <Button size="sm" disabled={currentPage === totalPages} onClick={() => setCurrentPage((p) => p + 1)}>Next</Button>
+            <Button size="sm" disabled={currentPage === 1} onClick={() => setCurrentPage(p => p - 1)}>Prev</Button>
+            <Button size="sm" disabled={currentPage === totalPages} onClick={() => setCurrentPage(p => p + 1)}>Next</Button>
           </div>
         </CardHeader>
 
-        {/* Table Body */}
         <CardBody className="p-0 overflow-x-auto">
           {loading ? (
-            <div className="flex justify-center py-10">
-              <Spinner className="h-10 w-10" />
-            </div>
+            <div className="flex justify-center py-10"><Spinner /></div>
           ) : (
-            <table className="w-full table-fixed border-collapse min-w-[1500px]">
-              <thead className="sticky top-0 z-20 border-b bg-gray-200">
+            <table className="w-full min-w-[1500px] table-fixed">
+              <thead className="bg-gray-200 sticky top-0">
                 <tr>
                   {columns.map((col) => (
-                    <th key={col.key} style={{ width: col.width }} className="px-3 py-2 text-left">
-                      <div className="flex items-center gap-2 cursor-pointer" onClick={() => toggleSort(col.key)}>
-                        <span className="capitalize text-sm font-semibold">{col.label}</span>
-
-                        {sortField === col.key ? (
-                          sortOrder === "asc" ? <ChevronUpDownIcon className="h-4" /> : <ChevronDownIcon className="h-4" />
-                        ) : (
-                          <ChevronUpDownIcon className="h-4 opacity-40" />
-                        )}
+                    <th key={col.key} style={{ width: col.width }} className="px-3 py-2">
+                      <div onClick={() => toggleSort(col.key)} className="flex gap-2 cursor-pointer">
+                        {col.label}
+                        <ChevronUpDownIcon className="h-4" />
                       </div>
                     </th>
                   ))}
                 </tr>
               </thead>
-
               <tbody>
-                {pageData.length === 0 ? (
-                  <tr>
-                    <td colSpan={columns.length} className="text-center p-6">No records found</td>
+                {pageData.map((row, idx) => (
+                  <tr key={idx} className="border-b hover:bg-gray-50">
+                    {columns.map((col) => (
+                      <td key={col.key} className="px-3 py-3 text-sm break-words">
+                        {String(row[col.key] ?? "-")}
+                      </td>
+                    ))}
                   </tr>
-                ) : (
-                  pageData.map((row, idx) => (
-                    <tr key={idx} className="border-b hover:bg-gray-50">
-                      {columns.map((col) => (
-                        <td key={col.key} style={{ width: col.width }} className="px-3 py-3 break-words text-sm">
-                          {String(row[col.key] ?? "-")}
-                        </td>
-                      ))}
-                    </tr>
-                  ))
-                )}
+                ))}
               </tbody>
             </table>
           )}
         </CardBody>
       </Card>
-
-      {/* Footer Pagination */}
-      <div className="mt-4 flex justify-center items-center gap-2">
-        <Button size="sm" onClick={() => setCurrentPage(1)} disabled={currentPage === 1}>
-          First
-        </Button>
-        <Button size="sm" onClick={() => setCurrentPage((p) => Math.max(1, p - 1))} disabled={currentPage === 1}>
-          Prev
-        </Button>
-
-        <div className="px-3 py-1 border rounded">
-          Page {currentPage} / {totalPages}
-        </div>
-
-        <Button size="sm" onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages}>
-          Next
-        </Button>
-        <Button size="sm" onClick={() => setCurrentPage(totalPages)} disabled={currentPage === totalPages}>
-          Last
-        </Button>
-      </div>
     </div>
   );
 };
 
-export default GoogleData;
+export default CleanListingMaster;
